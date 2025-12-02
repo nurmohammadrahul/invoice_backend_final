@@ -1,4 +1,3 @@
-// api/server.js
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -19,8 +18,8 @@ app.get('/', (req, res) => {
   res.send('Server is running!');
 });
 
-// MongoDB connection
-let isConnected = false; // prevent multiple connections in serverless
+// MongoDB connection (prevent multiple connections in serverless)
+let isConnected = false;
 const connectDB = async () => {
   if (isConnected) return;
   try {
@@ -28,10 +27,10 @@ const connectDB = async () => {
     isConnected = true;
     console.log('MongoDB connected');
   } catch (err) {
-    console.log(err);
+    console.error(err);
   }
 };
 connectDB();
 
-// Export the app as a Vercel handler
+// Export the app for serverless deployment
 module.exports = app;
