@@ -6,9 +6,17 @@ require('dotenv').config();
 const app = express();
 
 // Middleware
-app.use(cors());
 app.use(express.json());
-
+// In your backend index.js
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://vqs-invoice.vercel.app', // Add your frontend URL
+  'https://invoice-backend-final.vercel.app'
+];
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
 // Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/invoices', require('./routes/invoices'));
