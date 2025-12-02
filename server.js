@@ -1,3 +1,4 @@
+// api/server.js
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -13,10 +14,24 @@ app.use(express.json());
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/invoices', require('./routes/invoices'));
 
-// Database connection
-mongoose.connect(process.env.MONGOODB_URI)
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.log(err));
+// Root route
+app.get('/', (req, res) => {
+  res.send('Server is running!');
+});
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// MongoDB connection
+let isConnected = false; // prevent multiple connections in serverless
+const connectDB = async () => {
+  if (isConnected) return;
+  try {
+    await mongoose.connect(process.env.MONGOODB_URI);
+    isConnected = true;
+    console.log('MongoDB connected');
+  } catch (err) {
+    console.log(err);
+  }
+};
+connectDB();
+
+// Export the app as a Vercel handler
+module.exports = app;
