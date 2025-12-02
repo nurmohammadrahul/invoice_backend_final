@@ -1,7 +1,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const User = require('../models/User');
+const User = require('../models/User.js');
 const router = express.Router();
 
 // Create admin user if not exists (FIXED VERSION)
