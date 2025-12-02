@@ -14,7 +14,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/invoices', require('./routes/invoices'));
 
 // Database connection
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.connect(process.env.MONGOODB_URI)
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.log(err));
 
