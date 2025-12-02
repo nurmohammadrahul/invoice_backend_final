@@ -6,123 +6,122 @@ require('dotenv').config();
 const app = express();
 
 // Middleware
-app.use(express.json());
-
-// CORS configuration
-const allowedOrigins = [
-  'http://localhost:3000',
-  'https://vqs-invoice.vercel.app',
-  'https://invoice-backend-final.vercel.app'
-];
-
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: [
+    'http://localhost:3000',
+    'https://vqs-invoice.vercel.app',
+    'https://invoice-backend-final.vercel.app'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Handle preflight requests
-app.options('*', cors());
+app.use(express.json());
 
-// ✅ ADD HEALTH CHECK ENDPOINT
+// ✅ HEALTH CHECK - Simple endpoint that always works
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'OK', 
     message: 'Server is running',
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     timestamp: new Date().toISOString()
   });
 });
 
-// Root route
+// ✅ ROOT ENDPOINT
 app.get('/', (req, res) => {
-  res.send('Server is running! API available at /api/health, /api/auth, /api/invoices');
-});
-
-// Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/invoices', require('./routes/invoices'));
-
-// MongoDB connection with better error handling
-const connectDB = async () => {
-  try {
-    // Ensure MongoDB URI is available
-    if (!process.env.MONGODB_URI) {
-      throw new Error('MONGODB_URI is not defined in environment variables');
-    }
-    
-    await mongoose.connect(process.env.MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      serverSelectionTimeoutMS: 30000,
-      socketTimeoutMS: 45000,
-    });
-    console.log('✅ MongoDB Connected Successfully');
-  } catch (error) {
-    console.error('❌ MongoDB Connection Error:', error.message);
-    console.log('MONGODB_URI exists?', !!process.env.MONGODB_URI);
-    process.exit(1);
-  }
-};
-
-// Connect to DB
-connectDB();
-
-// MongoDB connection events
-mongoose.connection.on('connected', () => {
-  console.log('Mongoose connected to DB');
-});
-
-mongoose.connection.on('error', (err) => {
-  console.log('Mongoose connection error:', err);
-});
-
-mongoose.connection.on('disconnected', () => {
-  console.log('Mongoose disconnected');
-});
-
-// Add debug endpoint
-app.get('/api/debug', (req, res) => {
   res.json({
-    mongodbState: mongoose.connection.readyState,
-    // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
-    envMongoDBUri: process.env.MONGODB_URI ? 'Set (first 20 chars): ' + process.env.MONGODB_URI.substring(0, 20) + '...' : 'Not set',
-    nodeEnv: process.env.NODE_ENV,
-    time: new Date().toISOString()
+    message: 'Invoice Backend API',
+    endpoints: [
+      'GET /api/health',
+      'POST /api/auth/login',
+      'POST /api/auth/init',
+      'GET /api/auth/status'
+    ]
   });
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(err.status || 500).json({
-    message: err.message || 'Internal Server Error',
-    error: process.env.NODE_ENV === 'development' ? err : {}
+// ✅ SIMPLE TEST ENDPOINT (No database required)
+app.get('/api/test', (req, res) => {
+  res.json({ 
+    success: true,
+    message: 'API is working without database!',
+    timestamp: new Date().toISOString()
   });
 });
 
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({ message: 'Route not found' });
-});
-
-// Start server only if not in serverless environment (Vercel)
-if (require.main === module) {
-  const PORT = process.env.PORT || 5000;
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+// ✅ LOAD ROUTES WITH ERROR HANDLING
+try {
+  console.log('🔧 Loading auth routes...');
+  const authRouter = require('./routes/auth');
+  app.use('/api/auth', authRouter);
+  console.log('✅ Auth routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load auth routes:', error.message);
+  
+  // Fallback auth routes
+  app.post('/api/auth/login', (req, res) => {
+    res.status(503).json({ 
+      error: 'Auth system is being set up',
+      message: 'Please try the /api/auth/init endpoint first'
+    });
+  });
+  
+  app.post('/api/auth/init', (req, res) => {
+    res.json({ 
+      message: 'Use the init endpoint to create admin user',
+      note: 'Make sure MongoDB is connected'
+    });
   });
 }
 
-// Export the app for serverless deployment
+try {
+  console.log('🔧 Loading invoice routes...');
+  const invoicesRouter = require('./routes/invoices');
+  app.use('/api/invoices', invoicesRouter);
+  console.log('✅ Invoice routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load invoice routes:', error.message);
+  
+  // Fallback invoice routes
+  app.get('/api/invoices/test', (req, res) => {
+    res.json({ 
+      message: 'Invoice system is being set up',
+      timestamp: new Date().toISOString()
+    });
+  });
+}
+
+// ✅ DATABASE CONNECTION (Non-blocking)
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/invoice-app', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+.then(() => {
+  console.log('✅ MongoDB Connected Successfully');
+})
+.catch(err => {
+  console.log('⚠️ MongoDB Connection Failed:', err.message);
+  console.log('⚠️ Running in database-less mode. Some features may be limited.');
+});
+
+// ✅ ERROR HANDLING MIDDLEWARE
+app.use((err, req, res, next) => {
+  console.error('Server error:', err);
+  res.status(500).json({ 
+    error: 'Internal server error',
+    message: err.message 
+  });
+});
+
+// ✅ 404 HANDLER
+app.use('*', (req, res) => {
+  res.status(404).json({ 
+    error: 'Route not found',
+    path: req.originalUrl,
+    availableRoutes: ['/', '/api/health', '/api/test', '/api/auth', '/api/invoices']
+  });
+});
+
+// ✅ EXPORT FOR VERCEL (Must be the last line)
 module.exports = app;

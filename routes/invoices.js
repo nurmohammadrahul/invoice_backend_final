@@ -1,6 +1,6 @@
 const express = require('express');
 const auth = require('../middleware/auth');
-const Invoice = require('../models/Invoice.js');
+const Invoice = require('../models/Invoice');
 const router = express.Router();
 
 // Get all invoices
