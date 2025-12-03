@@ -1,11 +1,10 @@
-
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const router = express.Router();
 
-// Create admin user if not exists (FIXED VERSION)
+// Create admin user if not exists
 router.post('/init', async (req, res) => {
   try {
     console.log('🔄 Checking for admin user...');
@@ -16,12 +15,11 @@ router.post('/init', async (req, res) => {
       return res.json({ message: 'Admin user already exists' });
     }
 
-    // Hash password before creating user
     const hashedPassword = await bcrypt.hash('admin123', 10);
     
     const adminUser = new User({
       username: 'admin',
-      password: hashedPassword, // Already hashed
+      password: hashedPassword,
       role: 'admin'
     });
 
@@ -48,7 +46,6 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
 
-    // Compare passwords
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       console.log('❌ Password mismatch for user:', username);
@@ -74,7 +71,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Debug route to see all users (optional)
+// Debug route
 router.get('/users', async (req, res) => {
   try {
     const users = await User.find({}).select('-password');
