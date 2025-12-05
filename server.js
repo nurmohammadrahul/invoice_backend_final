@@ -5,7 +5,6 @@ require('dotenv').config();
 
 const authRoutes = require('./routes/auth');
 const invoiceRoutes = require('./routes/invoices');
-const authMiddleware = require('./middleware/auth'); // Import middleware
 
 const app = express();
 
@@ -15,53 +14,70 @@ const allowedOrigins = [
   "https://vqs-invoice.vercel.app"
 ];
 
-// CORS middleware
+// Simple CORS configuration
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
-      console.error('CORS blocked origin:', origin);
-      return callback(new Error(msg), false);
-    }
-    return callback(null, true);
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token', 'Accept', 'X-Requested-With']
-}));
-
-// Handle preflight requests for all routes
-app.options('*', cors({
   origin: allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token', 'Accept', 'X-Requested-With']
 }));
 
-// Add custom headers middleware
+// Handle preflight requests
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).end();
+});
+
+// Add headers middleware
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Origin', origin);
   }
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token, Accept, X-Requested-With');
-  res.setHeader('Access-Control-Expose-Headers', 'Content-Type, Authorization, x-auth-token');
-  
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token, Accept, X-Requested-With');
   next();
 });
 
 app.use(express.json());
 
-// ---- Public Routes (No auth required) ----
+// ---- MongoDB Connection ----
+console.log('🔗 Attempting MongoDB connection...');
+console.log('MONGODB_URI exists:', !!process.env.MONGODB_URI);
+
+mongoose.connect(process.env.MONGODB_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+.then(() => {
+  console.log('✅ MongoDB Connected Successfully');
+})
+.catch((err) => {
+  console.error('❌ MongoDB Connection Error:', err.message);
+});
+
+// Test database connection
+app.get('/db-test', async (req, res) => {
+  try {
+    const connectionState = mongoose.connection.readyState;
+    const states = ['disconnected', 'connected', 'connecting', 'disconnecting'];
+    
+    res.json({
+      status: states[connectionState],
+      readyState: connectionState,
+      connected: connectionState === 1,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ---- Public Routes ----
 app.get("/", (req, res) => {
   res.json({
     message: "VQS Invoice Backend Running",
@@ -69,61 +85,46 @@ app.get("/", (req, res) => {
     time: new Date().toISOString(),
     endpoints: {
       auth: "/api/auth",
-      invoices: "/api/invoices"
+      invoices: "/api/invoices",
+      health: "/health",
+      dbTest: "/db-test"
     }
   });
 });
 
 app.get("/health", (req, res) => {
+  const dbState = mongoose.connection.readyState;
   res.json({
     status: "OK",
-    database: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+    database: dbState === 1 ? "Connected" : "Disconnected",
+    databaseState: dbState,
     timestamp: new Date().toISOString()
   });
 });
 
-// ---- MongoDB ----
-let isConnected = false;
-
-async function connectDB() {
-  if (isConnected) return;
-
-  try {
-    await mongoose.connect(process.env.MONGODB_URI);
-    isConnected = true;
-    console.log("✅ MongoDB Connected");
-  } catch (err) {
-    console.error("❌ DB Error:", err.message);
-  }
-}
-
-connectDB();
-
 // ---- Routes ----
 app.use("/api/auth", authRoutes);
-// app.use("/api/invoices", authMiddleware, invoiceRoutes); // If invoices need auth
-app.use("/api/invoices", invoiceRoutes); // If invoices are public or have their own auth
+app.use("/api/invoices", invoiceRoutes);
 
-// ---- 404 ----
+// ---- 404 Handler ----
 app.use((req, res) => {
   res.status(404).json({
     error: "Route not found",
     path: req.originalUrl,
+    timestamp: new Date().toISOString()
   });
 });
 
-// ---- Error Handling ----
+// ---- Global Error Handler ----
 app.use((err, req, res, next) => {
-  console.error('Server Error:', err.stack);
+  console.error('💥 Server Error:', {
+    message: err.message,
+    stack: err.stack,
+    path: req.originalUrl,
+    method: req.method
+  });
   
-  // Ensure CORS headers are present even on errors
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  
-  res.status(500).json({
+  res.status(err.status || 500).json({
     error: "Internal server error",
     message: process.env.NODE_ENV === 'development' ? err.message : undefined,
     timestamp: new Date().toISOString()
@@ -132,13 +133,22 @@ app.use((err, req, res, next) => {
 
 // ---- Start Server ----
 const PORT = process.env.PORT || 5000;
-if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`🌐 Allowed origins: ${allowedOrigins.join(', ')}`);
-    console.log(`🔐 JWT Secret configured: ${process.env.JWT_SECRET ? 'Yes' : 'No (using fallback)'}`);
-  });
-}
+const server = app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🌐 Allowed origins: ${allowedOrigins.join(', ')}`);
+  console.log(`🔐 JWT Secret configured: ${process.env.JWT_SECRET ? 'Yes' : 'No (using fallback)'}`);
+});
 
-// ---- Export for Vercel ----
+// Handle graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+    mongoose.connection.close(false, () => {
+      console.log('MongoDB connection closed');
+      process.exit(0);
+    });
+  });
+});
+
 module.exports = app;
