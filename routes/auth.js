@@ -4,31 +4,77 @@ const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const router = express.Router();
 
-// Create admin user if not exists
-router.post('/init', async (req, res) => {
+// Check if admin exists
+const checkAdminExists = async () => {
+  return await User.findOne({ role: 'admin' });
+};
+
+// Admin Registration (Only if no admin exists)
+router.post('/register', async (req, res) => {
   try {
-    console.log('🔄 Checking for admin user...');
+    const { username, password, name, email } = req.body;
     
-    const adminExists = await User.findOne({ username: 'admin' });
-    if (adminExists) {
-      console.log('✅ Admin user already exists');
-      return res.json({ message: 'Admin user already exists' });
+    console.log('📝 Admin registration attempt for username:', username);
+
+    // Validation
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
     }
 
-    const hashedPassword = await bcrypt.hash('admin123', 10);
+    // Check if user already exists
+    const existingUser = await User.findOne({ username });
+    if (existingUser) {
+      return res.status(400).json({ error: 'Username already exists' });
+    }
+
+    // Check if admin already exists
+    const adminExists = await checkAdminExists();
+    if (adminExists) {
+      return res.status(400).json({ 
+        error: 'Admin already exists. Cannot register another admin.' 
+      });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
     
-    const adminUser = new User({
-      username: 'admin',
+    // Create admin user
+    const newAdmin = new User({
+      username,
       password: hashedPassword,
-      role: 'admin'
+      role: 'admin',
+      name: name || username,
+      email: email || `${username}@vqs.com`
     });
 
-    await adminUser.save();
-    console.log('✅ Admin user created successfully');
-    res.json({ message: 'Admin user created successfully' });
+    await newAdmin.save();
+    
+    console.log('✅ Admin registered successfully:', username);
+    
+    // Generate token for auto-login after registration
+    const token = jwt.sign(
+      { 
+        userId: newAdmin._id, 
+        username: newAdmin.username,
+        role: newAdmin.role 
+      },
+      process.env.JWT_SECRET || 'fallback-secret-key',
+      { expiresIn: '24h' }
+    );
+
+    res.status(201).json({ 
+      message: 'Admin registered successfully',
+      token,
+      user: {
+        id: newAdmin._id,
+        username: newAdmin.username,
+        name: newAdmin.name,
+        role: newAdmin.role
+      }
+    });
     
   } catch (error) {
-    console.error('❌ Error in init:', error.message);
+    console.error('💥 Admin registration error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -40,10 +86,19 @@ router.post('/login', async (req, res) => {
     
     console.log('🔐 Login attempt for username:', username);
 
+    // Validation
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+
     const user = await User.findOne({ username });
     if (!user) {
       console.log('❌ User not found:', username);
       return res.status(400).json({ error: 'Invalid credentials' });
+    }
+
+    if (!user.isActive) {
+      return res.status(400).json({ error: 'Account is deactivated' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
@@ -53,16 +108,22 @@ router.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign(
-      { userId: user._id, username: user.username },
+      { 
+        userId: user._id, 
+        username: user.username,
+        role: user.role 
+      },
       process.env.JWT_SECRET || 'fallback-secret-key',
       { expiresIn: '24h' }
     );
 
-    console.log('✅ Login successful for user:', username);
+    console.log('✅ Login successful for user:', username, 'Role:', user.role);
     res.json({ 
       token, 
       username: user.username,
-      name: user.name 
+      name: user.name,
+      role: user.role,
+      userId: user._id
     });
     
   } catch (error) {
@@ -71,16 +132,101 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Debug route
-router.get('/users', async (req, res) => {
+// Change password (protected route)
+router.post('/change-password', async (req, res) => {
   try {
-    const users = await User.find({}).select('-password');
-    console.log('📊 Users in database:', users.length);
+    const { currentPassword, newPassword } = req.body;
+    
+    // Get token from Authorization header
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (!token) {
+      return res.status(401).json({ error: 'No token, authorization denied' });
+    }
+
+    // Verify token
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret-key');
+    } catch (error) {
+      return res.status(401).json({ error: 'Token is not valid' });
+    }
+
+    // Find user
+    const user = await User.findById(decoded.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Validate inputs
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current password and new password are required' });
+    }
+
+    // Verify current password
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ error: 'Current password is incorrect' });
+    }
+
+    // Check if new password is same as old
+    const isSamePassword = await bcrypt.compare(newPassword, user.password);
+    if (isSamePassword) {
+      return res.status(400).json({ error: 'New password must be different from current password' });
+    }
+
+    // Hash new password
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+    
+    // Update password
+    user.password = hashedNewPassword;
+    await user.save();
+
+    console.log('✅ Password changed successfully for user:', user.username);
+    
     res.json({ 
-      totalUsers: users.length,
-      users: users 
+      message: 'Password changed successfully'
+    });
+    
+  } catch (error) {
+    console.error('💥 Change password error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Check if admin exists (for frontend to show registration or login)
+router.get('/check-admin', async (req, res) => {
+  try {
+    const adminExists = await checkAdminExists();
+    res.json({ 
+      adminExists: !!adminExists,
+      message: adminExists ? 'Admin exists' : 'No admin found, please register'
     });
   } catch (error) {
+    console.error('💥 Check admin error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get current user info
+router.get('/me', async (req, res) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (!token) {
+      return res.status(401).json({ error: 'No token' });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret-key');
+    const user = await User.findById(decoded.userId).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json(user);
+  } catch (error) {
+    console.error('💥 Get user error:', error);
     res.status(500).json({ error: error.message });
   }
 });

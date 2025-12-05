@@ -13,7 +13,6 @@ const invoiceSchema = new mongoose.Schema({
   dueDate: {
     type: Date,
     default: function() {
-      // Default due date 15 days from creation
       const dueDate = new Date(this.date);
       dueDate.setDate(dueDate.getDate() + 15);
       return dueDate;
@@ -114,7 +113,7 @@ const invoiceSchema = new mongoose.Schema({
   },
   notes: String
 }, {
-  timestamps: true // Adds createdAt and updatedAt fields
+  timestamps: true
 });
 
 module.exports = mongoose.model('Invoice', invoiceSchema);

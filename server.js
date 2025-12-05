@@ -22,8 +22,22 @@ app.use(express.json());
 // ---- Root Route ----
 app.get("/", (req, res) => {
   res.json({
-    message: "Invoice Backend Running",
-    time: new Date().toISOString()
+    message: "VQS Invoice Backend Running",
+    version: "1.0.0",
+    time: new Date().toISOString(),
+    endpoints: {
+      auth: "/api/auth",
+      invoices: "/api/invoices"
+    }
+  });
+});
+
+// ---- Health Check ----
+app.get("/health", (req, res) => {
+  res.json({
+    status: "OK",
+    database: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -55,6 +69,23 @@ app.use((req, res) => {
     path: req.originalUrl,
   });
 });
+
+// ---- Error Handling ----
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({
+    error: "Internal server error",
+    message: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
+
+// ---- Start Server ----
+const PORT = process.env.PORT || 5000;
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+  });
+}
 
 // ---- Export for Vercel ----
 module.exports = app;

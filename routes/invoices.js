@@ -1,4 +1,3 @@
-
 const express = require('express');
 const auth = require('../middleware/auth');
 const Invoice = require('../models/Invoice');
@@ -53,8 +52,8 @@ router.put('/:id', auth, async (req, res) => {
       req.params.id,
       { $set: req.body },
       { 
-        new: true, // Return updated document
-        runValidators: true, // Run schema validations
+        new: true,
+        runValidators: true,
         context: 'query'
       }
     );
@@ -68,7 +67,6 @@ router.put('/:id', auth, async (req, res) => {
   } catch (error) {
     console.error('Update invoice error:', error);
     
-    // Handle specific MongoDB errors
     if (error.name === 'ValidationError') {
       const errors = Object.values(error.errors).map(err => err.message);
       return res.status(400).json({ error: errors.join(', ') });
