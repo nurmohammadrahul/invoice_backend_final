@@ -2,14 +2,32 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
+const authMiddleware = require('../middleware/auth'); // Import the middleware
 const router = express.Router();
 
-// Check if admin exists
+// Check if admin exists (public - no auth required)
 const checkAdminExists = async () => {
   return await User.findOne({ role: 'admin' });
 };
 
-// Admin Registration (Only if no admin exists)
+// =============== PUBLIC ENDPOINTS ===============
+
+// Check if admin exists (for frontend to show registration or login) - PUBLIC
+router.get('/check-admin-exists', async (req, res) => {
+  try {
+    console.log('🔍 Checking if admin exists...');
+    const adminExists = await checkAdminExists();
+    res.json({ 
+      adminExists: !!adminExists,
+      message: adminExists ? 'Admin exists, please login' : 'No admin found, please register'
+    });
+  } catch (error) {
+    console.error('💥 Check admin exists error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Registration (Only if no admin exists) - PUBLIC
 router.post('/register', async (req, res) => {
   try {
     const { username, password, name, email } = req.body;
@@ -79,7 +97,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// Login route
+// Login route - PUBLIC
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -132,28 +150,75 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Change password (protected route)
-router.post('/change-password', async (req, res) => {
+// =============== PROTECTED ENDPOINTS (Require Auth) ===============
+
+// Check current user's admin status - PROTECTED
+router.get('/check-admin', authMiddleware, async (req, res) => {
+  try {
+    console.log('🔐 Check-admin endpoint accessed');
+    console.log('👤 Authenticated user:', req.user);
+    
+    // Find user using the userId from the authenticated token
+    const user = await User.findById(req.user.userId).select('-password');
+    
+    if (!user) {
+      console.log('❌ User not found:', req.user.userId);
+      return res.status(404).json({ 
+        isAdmin: false, 
+        message: 'User account not found.',
+        error: 'USER_NOT_FOUND'
+      });
+    }
+    
+    console.log('✅ User found:', user.email, 'Role:', user.role);
+    
+    // Return admin status
+    res.json({ 
+      isAdmin: user.role === 'admin',
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        name: user.name || user.username
+      },
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('💥 Check admin error:', error);
+    res.status(500).json({ 
+      isAdmin: false, 
+      message: 'Server error while checking admin status',
+      error: 'SERVER_ERROR',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Get current user info - PROTECTED
+router.get('/me', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json(user);
+  } catch (error) {
+    console.error('💥 Get user error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Change password - PROTECTED
+router.post('/change-password', authMiddleware, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
     
-    // Get token from Authorization header
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return res.status(401).json({ error: 'No token, authorization denied' });
-    }
-
-    // Verify token
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret-key');
-    } catch (error) {
-      return res.status(401).json({ error: 'Token is not valid' });
-    }
-
     // Find user
-    const user = await User.findById(decoded.userId);
+    const user = await User.findById(req.user.userId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -194,39 +259,16 @@ router.post('/change-password', async (req, res) => {
   }
 });
 
-// Check if admin exists (for frontend to show registration or login)
-router.get('/check-admin', async (req, res) => {
+// Logout - PROTECTED
+router.post('/logout', authMiddleware, async (req, res) => {
   try {
-    const adminExists = await checkAdminExists();
+    console.log('👋 User logging out:', req.user.username);
     res.json({ 
-      adminExists: !!adminExists,
-      message: adminExists ? 'Admin exists' : 'No admin found, please register'
+      message: 'Logged out successfully',
+      note: 'Please clear the token from client-side storage'
     });
   } catch (error) {
-    console.error('💥 Check admin error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Get current user info
-router.get('/me', async (req, res) => {
-  try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return res.status(401).json({ error: 'No token' });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret-key');
-    const user = await User.findById(decoded.userId).select('-password');
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    res.json(user);
-  } catch (error) {
-    console.error('💥 Get user error:', error);
+    console.error('💥 Logout error:', error);
     res.status(500).json({ error: error.message });
   }
 });
