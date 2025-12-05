@@ -3,32 +3,27 @@ const jwt = require('jsonwebtoken');
 const auth = (req, res, next) => {
   try {
     // Get token from Authorization header
-    const authHeader = req.header('Authorization');
+    const authHeader = req.headers.authorization;
     let token = null;
     
     if (authHeader && authHeader.startsWith('Bearer ')) {
       token = authHeader.substring(7);
     } else {
       // Also check x-auth-token header
-      token = req.header('x-auth-token');
+      token = req.headers['x-auth-token'];
     }
     
     if (!token) {
-      console.log('❌ No token provided');
       return res.status(401).json({ 
-        error: 'No authentication token provided. Please log in.',
+        error: 'Authentication required',
         code: 'NO_TOKEN'
       });
     }
-
-    console.log('🔑 Token received (first 20 chars):', token.substring(0, 20) + '...');
     
-    // Verify token with fallback secret
+    // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret-key');
     
-    console.log('✅ Token verified for user:', decoded.userId);
-    
-    // Add user info to request object
+    // Add user info to request
     req.user = {
       userId: decoded.userId,
       username: decoded.username,
@@ -37,16 +32,18 @@ const auth = (req, res, next) => {
     
     next();
   } catch (error) {
-    console.error('❌ Authentication error:', error.message);
+    console.error('Auth error:', error.message);
     
     if (error.name === 'JsonWebTokenError') {
       return res.status(401).json({ 
-        error: 'Invalid authentication token. Please log in again.',
+        error: 'Invalid token',
         code: 'INVALID_TOKEN'
       });
-    } else if (error.name === 'TokenExpiredError') {
+    }
+    
+    if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ 
-        error: 'Authentication token has expired. Please log in again.',
+        error: 'Token expired',
         code: 'TOKEN_EXPIRED'
       });
     }

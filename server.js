@@ -3,220 +3,202 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 require('dotenv').config();
 
-const authRoutes = require('./routes/auth');
-const invoiceRoutes = require('./routes/invoices');
-
 const app = express();
 
-// ---- CORS CONFIGURATION ----
-const allowedOrigins = [
-  "http://localhost:3000",
-  "https://vqs-invoice.vercel.app"
-];
+// =============== CONFIGURATION ===============
+const PORT = process.env.PORT || 5000;
+const NODE_ENV = process.env.NODE_ENV || 'development';
 
-// Simple CORS configuration
+// =============== CORS ===============
 app.use(cors({
-  origin: allowedOrigins,
+  origin: [
+    'http://localhost:3000',
+    'https://vqs-invoice.vercel.app'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token', 'Accept', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token']
 }));
 
 // Handle preflight requests
-app.options('*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.status(200).end();
-});
+app.options('*', cors());
 
-// Add headers middleware
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token, Accept, X-Requested-With');
-  next();
-});
-
+// =============== MIDDLEWARE ===============
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// ---- MongoDB Connection (FIXED) ----
-console.log('🔗 Attempting MongoDB connection...');
+// =============== DATABASE CONNECTION ===============
+console.log('🔗 Connecting to MongoDB...');
+console.log('Environment:', NODE_ENV);
 console.log('MONGODB_URI exists:', !!process.env.MONGODB_URI);
 
-// ✅ CORRECT: Remove deprecated options for Mongoose 7+
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/invoice_system', {
+  serverSelectionTimeoutMS: 10000,
+  socketTimeoutMS: 45000,
+})
 .then(() => {
   console.log('✅ MongoDB Connected Successfully');
   console.log('📊 Database:', mongoose.connection.name);
   console.log('📍 Host:', mongoose.connection.host);
-  console.log('🔌 Port:', mongoose.connection.port);
 })
-.catch((err) => {
+.catch(err => {
   console.error('❌ MongoDB Connection Error:', err.message);
-  console.error('Full error details:', {
-    name: err.name,
-    code: err.code,
-    message: err.message
-  });
-  
-  // Check if it's a common connection issue
-  if (err.name === 'MongoServerSelectionError') {
-    console.error('⚠️  MongoDB Server Selection Error - Check:');
-    console.error('1. MongoDB Atlas IP whitelist (Network Access)');
-    console.error('2. Database user credentials');
-    console.error('3. MongoDB URI format');
-  }
+  console.log('⚠️  Server will run in database-less mode for testing');
 });
 
-// Test database connection endpoint
+// Database connection state
+const db = mongoose.connection;
+db.on('error', console.error.bind(console, '❌ MongoDB connection error:'));
+db.on('disconnected', () => console.log('⚠️  MongoDB disconnected'));
+db.on('connected', () => console.log('✅ MongoDB connected'));
+db.on('reconnected', () => console.log('🔄 MongoDB reconnected'));
+
+// =============== TEST ENDPOINTS ===============
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    message: 'VQS Invoice Backend API',
+    version: '1.0.0',
+    status: 'running',
+    timestamp: new Date().toISOString(),
+    database: db.readyState === 1 ? 'connected' : 'disconnected',
+    endpoints: {
+      auth: {
+        checkAdminExists: 'GET /api/auth/check-admin-exists',
+        register: 'POST /api/auth/register',
+        login: 'POST /api/auth/login',
+        checkAdmin: 'GET /api/auth/check-admin (protected)'
+      },
+      invoices: {
+        getAll: 'GET /api/invoices (protected)',
+        create: 'POST /api/invoices (protected)'
+      },
+      health: 'GET /health',
+      dbTest: 'GET /db-test'
+    }
+  });
+});
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    database: {
+      state: db.readyState,
+      connected: db.readyState === 1,
+      name: db.name
+    },
+    environment: NODE_ENV,
+    memory: process.memoryUsage()
+  });
+});
+
+// Database test
 app.get('/db-test', async (req, res) => {
   try {
-    const connectionState = mongoose.connection.readyState;
+    const state = db.readyState;
     const states = ['disconnected', 'connected', 'connecting', 'disconnecting'];
     
     res.json({
-      status: states[connectionState],
-      readyState: connectionState,
-      connected: connectionState === 1,
-      database: mongoose.connection.name,
-      host: mongoose.connection.host,
+      database: {
+        state: states[state],
+        readyState: state,
+        connected: state === 1,
+        host: db.host,
+        name: db.name
+      },
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    res.status(500).json({ 
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
+    res.status(500).json({ error: error.message });
   }
 });
 
-// ---- Health Check Endpoint ----
-app.get("/health", (req, res) => {
-  const dbState = mongoose.connection.readyState;
+// =============== SIMPLE TEST AUTH (NO DATABASE) ===============
+// This works even if database is down
+app.get('/api/auth/simple-check', (req, res) => {
   res.json({
-    status: "OK",
-    serverTime: new Date().toISOString(),
-    uptime: process.uptime(),
-    database: {
-      status: dbState === 1 ? "Connected" : "Disconnected",
-      state: dbState,
-      name: mongoose.connection.name,
-      host: mongoose.connection.host
-    },
-    environment: process.env.NODE_ENV || 'development',
-    nodeVersion: process.version
+    message: 'Auth endpoint is reachable',
+    adminExists: false,
+    timestamp: new Date().toISOString()
   });
 });
 
-// ---- Root Endpoint ----
-app.get("/", (req, res) => {
+// Simple login test
+app.post('/api/auth/simple-login', (req, res) => {
+  const { username, password } = req.body;
+  
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password required' });
+  }
+  
+  // For testing, accept any credentials
   res.json({
-    message: "VQS Invoice Backend API",
-    version: "1.0.0",
-    description: "Invoice Management System",
-    endpoints: {
-      auth: {
-        checkAdminExists: "GET /api/auth/check-admin-exists",
-        register: "POST /api/auth/register",
-        login: "POST /api/auth/login",
-        checkAdmin: "GET /api/auth/check-admin (protected)",
-        me: "GET /api/auth/me (protected)",
-        changePassword: "POST /api/auth/change-password (protected)"
-      },
-      invoices: {
-        getAll: "GET /api/invoices (protected)",
-        getOne: "GET /api/invoices/:id (protected)",
-        create: "POST /api/invoices (protected)",
-        update: "PUT /api/invoices/:id (protected)",
-        delete: "DELETE /api/invoices/:id (protected)"
-      },
-      system: {
-        health: "GET /health",
-        dbTest: "GET /db-test",
-        root: "GET /"
-      }
+    message: 'Login successful (test mode)',
+    token: 'test-jwt-token-12345',
+    user: {
+      username: username,
+      name: 'Test User',
+      role: 'admin',
+      userId: 'test-user-id'
     },
     timestamp: new Date().toISOString()
   });
 });
 
-// ---- Routes ----
-app.use("/api/auth", authRoutes);
-app.use("/api/invoices", invoiceRoutes);
+// =============== IMPORT ROUTES ===============
+const authRoutes = require('./routes/auth');
+const invoiceRoutes = require('./routes/invoices');
 
-// ---- 404 Handler ----
-app.use((req, res) => {
+// Use routes
+app.use('/api/auth', authRoutes);
+app.use('/api/invoices', invoiceRoutes);
+
+// =============== ERROR HANDLING ===============
+// 404 handler
+app.use('*', (req, res) => {
   res.status(404).json({
-    error: "Route not found",
+    error: 'Route not found',
     path: req.originalUrl,
     method: req.method,
     timestamp: new Date().toISOString(),
     availableEndpoints: [
-      "GET /",
-      "GET /health",
-      "GET /db-test",
-      "POST /api/auth/login",
-      "POST /api/auth/register",
-      "GET /api/auth/check-admin-exists"
+      'GET /',
+      'GET /health',
+      'GET /db-test',
+      'GET /api/auth/simple-check',
+      'POST /api/auth/simple-login',
+      'GET /api/auth/check-admin-exists',
+      'POST /api/auth/login',
+      'POST /api/auth/register'
     ]
   });
 });
 
-// ---- Global Error Handler ----
+// Global error handler
 app.use((err, req, res, next) => {
   console.error('💥 Server Error:', {
     message: err.message,
-    stack: err.stack,
-    path: req.originalUrl,
-    method: req.method,
-    timestamp: new Date().toISOString()
+    stack: NODE_ENV === 'development' ? err.stack : undefined,
+    path: req.path,
+    method: req.method
   });
   
-  // Send JSON error response
   res.status(err.status || 500).json({
-    error: "Internal server error",
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong',
-    timestamp: new Date().toISOString(),
-    path: req.originalUrl
+    error: 'Internal server error',
+    message: NODE_ENV === 'development' ? err.message : 'Something went wrong',
+    timestamp: new Date().toISOString()
   });
 });
 
-// ---- Start Server ----
-const PORT = process.env.PORT || 5000;
-const server = app.listen(PORT, () => {
+// =============== START SERVER ===============
+app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🌐 Allowed origins: ${allowedOrigins.join(', ')}`);
-  console.log(`🔐 JWT Secret configured: ${process.env.JWT_SECRET ? 'Yes' : 'No (using fallback)'}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`📅 Server started at: ${new Date().toISOString()}`);
-});
-
-// Handle graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  server.close(() => {
-    console.log('HTTP server closed');
-    mongoose.connection.close(false, () => {
-      console.log('MongoDB connection closed');
-      process.exit(0);
-    });
-  });
-});
-
-// Handle uncaught exceptions
-process.on('uncaughtException', (err) => {
-  console.error('🔥 Uncaught Exception:', err);
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('🔥 Unhandled Rejection at:', promise, 'reason:', reason);
+  console.log(`🌍 Environment: ${NODE_ENV}`);
+  console.log(`🌐 URL: http://localhost:${PORT}`);
+  console.log(`📅 Started: ${new Date().toISOString()}`);
 });
 
 module.exports = app;
