@@ -41,7 +41,6 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Prevent password from being returned in queries
 userSchema.set('toJSON', {
   transform: (doc, ret) => {
     delete ret.password;

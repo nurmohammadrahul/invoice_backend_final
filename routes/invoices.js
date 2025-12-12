@@ -3,10 +3,8 @@ const authMiddleware = require('../middleware/auth');
 const Invoice = require('../models/Invoice');
 const router = express.Router();
 
-// Apply auth middleware to all routes
 router.use(authMiddleware);
 
-// Get all invoices
 router.get('/', async (req, res) => {
   try {
     const invoices = await Invoice.find().sort({ createdAt: -1 });
@@ -20,7 +18,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Get single invoice
 router.get('/:id', async (req, res) => {
   try {
     const invoice = await Invoice.findById(req.params.id);
@@ -39,10 +36,8 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Create invoice
 router.post('/', async (req, res) => {
   try {
-    // Generate invoice number if not provided
     if (!req.body.invoiceNumber) {
       const date = new Date();
       const year = date.getFullYear();
@@ -84,7 +79,6 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Update invoice
 router.put('/:id', async (req, res) => {
   try {
     const invoice = await Invoice.findByIdAndUpdate(
@@ -117,7 +111,6 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// Delete invoice
 router.delete('/:id', async (req, res) => {
   try {
     const invoice = await Invoice.findByIdAndDelete(req.params.id);

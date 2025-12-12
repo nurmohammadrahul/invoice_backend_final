@@ -130,17 +130,13 @@ const invoiceSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Auto-calculate totals before saving
 invoiceSchema.pre('save', function(next) {
-  // Calculate item totals
   this.items.forEach(item => {
     item.total = item.quantity * item.price;
   });
   
-  // Calculate subtotal
   this.subtotal = this.items.reduce((sum, item) => sum + item.total, 0);
   
-  // Calculate service charge
   let serviceChargeAmount = 0;
   if (this.serviceCharge.type === 'percentage') {
     serviceChargeAmount = (this.subtotal * this.serviceCharge.value) / 100;
@@ -149,7 +145,6 @@ invoiceSchema.pre('save', function(next) {
   }
   this.serviceCharge.amount = serviceChargeAmount;
   
-  // Calculate VAT
   let vatAmount = 0;
   if (this.vat.type === 'percentage') {
     vatAmount = (this.subtotal * this.vat.value) / 100;
@@ -158,7 +153,6 @@ invoiceSchema.pre('save', function(next) {
   }
   this.vat.amount = vatAmount;
   
-  // Calculate totals
   this.grandTotal = this.subtotal + serviceChargeAmount + vatAmount;
   this.netTotal = this.grandTotal - this.specialDiscount;
   

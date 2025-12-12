@@ -6,17 +6,13 @@ const authMiddleware = require('../middleware/auth');
 const router = express.Router();
 
 // =============== PUBLIC ENDPOINTS ===============
-
-// Check if admin exists
 router.get('/check-admin-exists', async (req, res) => {
   try {
     const adminCount = await User.countDocuments({ role: 'admin' });
-    
     res.json({ 
       adminExists: adminCount > 0,
       message: adminCount > 0 ? 'Admin exists' : 'No admin found'
     });
-    
   } catch (error) {
     console.error('Check admin error:', error.message);
     res.status(500).json({ 
@@ -26,19 +22,16 @@ router.get('/check-admin-exists', async (req, res) => {
   }
 });
 
-// Register admin
 router.post('/register', async (req, res) => {
   try {
     const { username, password, name, email } = req.body;
     
-    // Validation
     if (!username || !password) {
       return res.status(400).json({ 
         error: 'Username and password are required'
       });
     }
     
-    // Check if admin already exists
     const adminCount = await User.countDocuments({ role: 'admin' });
     if (adminCount > 0) {
       return res.status(400).json({ 
@@ -46,7 +39,6 @@ router.post('/register', async (req, res) => {
       });
     }
     
-    // Check if username exists
     const existingUser = await User.findOne({ username });
     if (existingUser) {
       return res.status(400).json({ 
@@ -54,10 +46,8 @@ router.post('/register', async (req, res) => {
       });
     }
     
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    // Create user
     const user = new User({
       username,
       password: hashedPassword,
@@ -68,7 +58,6 @@ router.post('/register', async (req, res) => {
     
     await user.save();
     
-    // Generate token
     const token = jwt.sign(
       { 
         userId: user._id, 
@@ -100,19 +89,16 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// Login
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     
-    // Validation
     if (!username || !password) {
       return res.status(400).json({ 
         error: 'Username and password are required'
       });
     }
     
-    // Find user
     const user = await User.findOne({ username });
     if (!user) {
       return res.status(400).json({ 
@@ -120,7 +106,6 @@ router.post('/login', async (req, res) => {
       });
     }
     
-    // Check password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({ 
@@ -128,7 +113,6 @@ router.post('/login', async (req, res) => {
       });
     }
     
-    // Generate token
     const token = jwt.sign(
       { 
         userId: user._id, 
@@ -161,8 +145,6 @@ router.post('/login', async (req, res) => {
 });
 
 // =============== PROTECTED ENDPOINTS ===============
-
-// Check current user admin status
 router.get('/check-admin', authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
@@ -194,7 +176,6 @@ router.get('/check-admin', authMiddleware, async (req, res) => {
   }
 });
 
-// Get current user
 router.get('/me', authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId).select('-password');
@@ -214,7 +195,6 @@ router.get('/me', authMiddleware, async (req, res) => {
   }
 });
 
-// Change password
 router.post('/change-password', authMiddleware, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -232,7 +212,6 @@ router.post('/change-password', authMiddleware, async (req, res) => {
       });
     }
     
-    // Verify current password
     const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) {
       return res.status(400).json({ 
@@ -240,7 +219,6 @@ router.post('/change-password', authMiddleware, async (req, res) => {
       });
     }
     
-    // Hash new password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     user.password = hashedPassword;
     await user.save();
