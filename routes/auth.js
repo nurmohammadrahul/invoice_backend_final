@@ -6,22 +6,6 @@ const authMiddleware = require('../middleware/auth');
 const router = express.Router();
 
 // =============== PUBLIC ENDPOINTS ===============
-router.get('/check-admin-exists', async (req, res) => {
-  try {
-    const adminCount = await User.countDocuments({ role: 'admin' });
-    res.json({ 
-      adminExists: adminCount > 0,
-      message: adminCount > 0 ? 'Admin exists' : 'No admin found'
-    });
-  } catch (error) {
-    console.error('Check admin error:', error.message);
-    res.status(500).json({ 
-      error: 'Server error',
-      adminExists: false
-    });
-  }
-});
-
 router.post('/register', async (req, res) => {
   try {
     const { username, password, name, email } = req.body;
@@ -32,13 +16,15 @@ router.post('/register', async (req, res) => {
       });
     }
     
-    const adminCount = await User.countDocuments({ role: 'admin' });
-    if (adminCount > 0) {
+    // Check if admin already exists
+    const existingAdmin = await User.findOne({ role: 'admin' });
+    if (existingAdmin) {
       return res.status(400).json({ 
-        error: 'Admin already exists'
+        error: 'Admin already exists. Only one admin is allowed.'
       });
     }
     
+    // Check if username already exists
     const existingUser = await User.findOne({ username });
     if (existingUser) {
       return res.status(400).json({ 
@@ -46,8 +32,10 @@ router.post('/register', async (req, res) => {
       });
     }
     
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
     
+    // Create admin user
     const user = new User({
       username,
       password: hashedPassword,
@@ -58,6 +46,7 @@ router.post('/register', async (req, res) => {
     
     await user.save();
     
+    // Generate JWT token
     const token = jwt.sign(
       { 
         userId: user._id, 
@@ -69,7 +58,7 @@ router.post('/register', async (req, res) => {
     );
     
     res.status(201).json({
-      message: 'Registration successful',
+      message: 'Admin registration successful',
       token,
       user: {
         id: user._id,
@@ -84,7 +73,7 @@ router.post('/register', async (req, res) => {
     console.error('Registration error:', error);
     res.status(500).json({ 
       error: 'Registration failed',
-      details: error.message
+      details: process.env.NODE_ENV === 'production' ? undefined : error.message
     });
   }
 });
@@ -99,6 +88,7 @@ router.post('/login', async (req, res) => {
       });
     }
     
+    // Find user
     const user = await User.findOne({ username });
     if (!user) {
       return res.status(400).json({ 
@@ -106,6 +96,7 @@ router.post('/login', async (req, res) => {
       });
     }
     
+    // Check password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({ 
@@ -113,6 +104,7 @@ router.post('/login', async (req, res) => {
       });
     }
     
+    // Generate JWT token
     const token = jwt.sign(
       { 
         userId: user._id, 
@@ -139,7 +131,7 @@ router.post('/login', async (req, res) => {
     console.error('Login error:', error);
     res.status(500).json({ 
       error: 'Login failed',
-      details: error.message
+      details: process.env.NODE_ENV === 'production' ? undefined : error.message
     });
   }
 });
@@ -147,6 +139,7 @@ router.post('/login', async (req, res) => {
 // =============== PROTECTED ENDPOINTS ===============
 router.get('/check-admin', authMiddleware, async (req, res) => {
   try {
+    // Get user from database
     const user = await User.findById(req.user.userId);
     
     if (!user) {
@@ -156,8 +149,11 @@ router.get('/check-admin', authMiddleware, async (req, res) => {
       });
     }
     
+    // Check if user is admin
+    const isAdmin = user.role === 'admin';
+    
     res.json({
-      isAdmin: user.role === 'admin',
+      isAdmin,
       user: {
         id: user._id,
         username: user.username,
@@ -171,7 +167,8 @@ router.get('/check-admin', authMiddleware, async (req, res) => {
     console.error('Check admin error:', error);
     res.status(500).json({ 
       isAdmin: false,
-      error: 'Server error'
+      error: 'Server error',
+      details: process.env.NODE_ENV === 'production' ? undefined : error.message
     });
   }
 });
@@ -202,6 +199,12 @@ router.post('/change-password', authMiddleware, async (req, res) => {
     if (!currentPassword || !newPassword) {
       return res.status(400).json({ 
         error: 'Both passwords are required'
+      });
+    }
+    
+    if (newPassword.length < 6) {
+      return res.status(400).json({ 
+        error: 'New password must be at least 6 characters long'
       });
     }
     
